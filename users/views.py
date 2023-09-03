@@ -1,5 +1,6 @@
 import random
 import string
+from datetime import timedelta, datetime
 
 from django.conf import settings
 from rest_framework import status
@@ -13,6 +14,7 @@ from users.serializers import UserSerializer
 __all__ = [
     'UserCreateView',
     'ForgotPasswordView',
+    'ResetPasswordView',
 ]
 
 
@@ -51,6 +53,44 @@ class ForgotPasswordView(APIView):
         send_mail(subject, message, from_email, recipient_list)
 
         return Response({"message": "Password reset instructions sent"}, status=status.HTTP_200_OK)
+
+
+class ResetPasswordView(APIView):
+
+    def post(self, request, token):
+        try:
+            user = User.objects.get(reset_password_token=token)
+        except User.DoesNotExist:
+            return Response({"detail": "Invalid reset token."}, status=status.HTTP_400_BAD_REQUEST)
+
+        new_password = request.data.get('new_password')
+        if new_password is None:
+            return Response({"detail": "New Password not sent."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not self.is_reset_token_valid(user):
+            user.token_created_at = None
+            user.save()
+            return Response({"detail": "Reset token has expired."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.reset_password_token = None
+        user.token_created_at = None
+        user.save()
+
+        return Response({"detail": "Password has been reset successfully."}, status=status.HTTP_200_OK)
+
+    def is_reset_token_valid(self, user, expiration_hours=2):
+        """
+        Token validation determined based on expiration time here
+        """
+        if user.token_created_at is None:
+            return False
+
+        # Calculate the token expiration time
+        expiration_time = user.token_created_at + timedelta(hours=expiration_hours)
+        current_time = datetime.now()
+
+        return current_time.time() <= expiration_time.time()
 
 
 
